@@ -86,8 +86,7 @@ public final class InnoSecureHook implements IXposedHookLoadPackage {
         }
     }
 
-    // Never emit raw String/object contents: secureSo may receive credentials or device IDs.
-    // Primitive diagnostic values and structural metadata are logged directly.
+    // Print readable text while masking fields commonly used for credentials or device identity.
     private static String describeValue(Object value) {
         if (value == null) return "null";
         if (value instanceof Context) {
@@ -95,7 +94,17 @@ public final class InnoSecureHook implements IXposedHookLoadPackage {
         }
         if (value instanceof String) {
             String s = (String) value;
-            return "String(length=" + s.length() + ", sha256=" + sha256(s) + ")";
+            return "String(length=" + s.length() + ", text=" + quoteForLog(redactSensitive(s)) + ")";
+        }
+        if (value instanceof byte[]) {
+            byte[] bytes = (byte[]) value;
+            String decoded = new String(bytes, StandardCharsets.UTF_8);
+            if (isReadableText(decoded)) {
+                return "byte[](length=" + bytes.length + ", utf8="
+                        + quoteForLog(redactSensitive(decoded)) + ")";
+            }
+            return "byte[](length=" + bytes.length + ", sha256="
+                    + sha256Bytes(bytes) + ", non-text)";
         }
         if (value instanceof Number || value instanceof Boolean || value instanceof Character
                 || value instanceof Enum<?>) {
@@ -107,6 +116,50 @@ public final class InnoSecureHook implements IXposedHookLoadPackage {
                     + "(length=" + java.lang.reflect.Array.getLength(value) + ")";
         }
         return type.getName();
+    }
+
+    private static String redactSensitive(String input) {
+        String s = input;
+        // Mask values attached to common secret/identity field names in JSON or key=value text.
+        s = s.replaceAll("(?i)(\\"?(?:authorization|access_token|refresh_token|token|cookie|"
+                + "password|passwd|secret|api[_-]?key|session[_-]?id|device[_-]?id|android[_-]?id)"
+                + "\\"?\\s*[:=]\\s*\\"?)[^\\\"',&}\\s]+", "$1<redacted>");
+        // Mask JWT-shaped values even when they appear without a recognizable field name.
+        s = s.replaceAll("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}",
+                "<jwt-redacted>");
+        return s;
+    }
+
+    private static boolean isReadableText(String s) {
+        if (s == null || s.length() == 0 || s.indexOf('\\uFFFD') >= 0) return false;
+        int checked = Math.min(s.length(), 4096);
+        for (int i = 0; i < checked; i++) {
+            char ch = s.charAt(i);
+            if (Character.isISOControl(ch) && ch != '\\n' && ch != '\\r' && ch != '\\t') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String quoteForLog(String s) {
+        if (s == null) return "null";
+        String value = s.replace("\\\\", "\\\\\\\\")
+                .replace("\\r", "\\\\r").replace("\\n", "\\\\n")
+                .replace("\\t", "\\\\t");
+        if (value.length() > 4096) value = value.substring(0, 4096) + "...<truncated>";
+        return "\\"" + value + "\\"";
+    }
+
+    private static String sha256Bytes(byte[] bytes) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder out = new StringBuilder(digest.length * 2);
+            for (byte b : digest) out.append(String.format(Locale.US, "%02x", b & 0xff));
+            return out.toString();
+        } catch (Exception e) {
+            return "unavailable";
+        }
     }
 
     private void hookWebViewDiagnostics() {
