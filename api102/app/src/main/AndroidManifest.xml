@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="false"
+        android:label="Inno TUID Monitor API 102"
+        android:description="Read-only SDK diagnostics module"
+        android:supportsRtl="true" />
+</manifest>
