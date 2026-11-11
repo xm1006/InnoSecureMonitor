@@ -120,22 +120,21 @@ public final class InnoSecureHook implements IXposedHookLoadPackage {
 
     private static String redactSensitive(String input) {
         String s = input;
-        // Mask values attached to common secret/identity field names in JSON or key=value text.
-        s = s.replaceAll("(?i)(\\"?(?:authorization|access_token|refresh_token|token|cookie|"
+        // Mask values attached to common secret/identity field names.
+        s = s.replaceAll("(?i)((?:authorization|access_token|refresh_token|token|cookie|"
                 + "password|passwd|secret|api[_-]?key|session[_-]?id|device[_-]?id|android[_-]?id)"
-                + "\\"?\\s*[:=]\\s*\\"?)[^\\\"',&}\\s]+", "$1<redacted>");
-        // Mask JWT-shaped values even when they appear without a recognizable field name.
+                + "[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\\"'&,}\\s]+", "$1<redacted>");
         s = s.replaceAll("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}",
                 "<jwt-redacted>");
         return s;
     }
 
     private static boolean isReadableText(String s) {
-        if (s == null || s.length() == 0 || s.indexOf('\\uFFFD') >= 0) return false;
+        if (s == null || s.length() == 0 || s.indexOf('\uFFFD') >= 0) return false;
         int checked = Math.min(s.length(), 4096);
         for (int i = 0; i < checked; i++) {
             char ch = s.charAt(i);
-            if (Character.isISOControl(ch) && ch != '\\n' && ch != '\\r' && ch != '\\t') {
+            if (Character.isISOControl(ch) && ch != '\n' && ch != '\r' && ch != '\t') {
                 return false;
             }
         }
@@ -144,11 +143,11 @@ public final class InnoSecureHook implements IXposedHookLoadPackage {
 
     private static String quoteForLog(String s) {
         if (s == null) return "null";
-        String value = s.replace("\\\\", "\\\\\\\\")
-                .replace("\\r", "\\\\r").replace("\\n", "\\\\n")
-                .replace("\\t", "\\\\t");
+        String value = s.replace("\\", "\\\\")
+                .replace("\r", "\\r").replace("\n", "\\n")
+                .replace("\t", "\\t");
         if (value.length() > 4096) value = value.substring(0, 4096) + "...<truncated>";
-        return "\\"" + value + "\\"";
+        return "\"" + value + "\"";
     }
 
     private static String sha256Bytes(byte[] bytes) {
