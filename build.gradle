@@ -1,0 +1,20 @@
+plugins {
+    id 'com.android.application' version '8.7.3'
+}
+
+android {
+    namespace 'com.example.innosecuremonitor'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.example.innosecuremonitor'
+        minSdk 23
+        targetSdk 28
+        versionCode 1
+        versionName '1.0'
+    }
+}
+
+dependencies {
+    compileOnly 'de.robv.android.xposed:api:82'
+}
