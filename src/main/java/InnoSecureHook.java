@@ -35,35 +35,78 @@ public final class InnoSecureHook implements IXposedHookLoadPackage {
     private void hookSecureSo(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
             Class<?> target = XposedHelpers.findClass(CLASS_NAME, lpparam.classLoader);
-            XposedHelpers.findAndHookMethod(target, "secureSo",
-                    Context.class, String.class, String.class, new XC_MethodHook() {
+            int declared = 0;
+            for (java.lang.reflect.Method method : target.getDeclaredMethods()) {
+                if ("secureSo".equals(method.getName())) {
+                    declared++;
+                    log("secureSo discovered: " + method.toGenericString());
+                }
+            }
+            if (declared == 0) {
+                log("secureSo NOT FOUND in " + CLASS_NAME
+                        + "; loader=" + String.valueOf(lpparam.classLoader));
+                return;
+            }
+
+            java.util.Set<XC_MethodHook.Unhook> installed =
+                    XposedBridge.hookAllMethods(target, "secureSo", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    Object c = param.args[0];
-                    String pkg = c instanceof Context ? ((Context) c).getPackageName() : "not-context";
-                    // Do not log raw security inputs. Log type, length and stable fingerprint.
-                    log("secureSo ENTER contextPackage=" + pkg
-                            + " arg1=" + fingerprint(param.args[1])
-                            + " arg2=" + fingerprint(param.args[2]));
+                    StringBuilder out = new StringBuilder("secureSo ENTER method=")
+                            .append(param.method.toString())
+                            .append(" thread=").append(Thread.currentThread().getName())
+                            .append(" args=[");
+                    if (param.args != null) {
+                        for (int i = 0; i < param.args.length; i++) {
+                            if (i > 0) out.append(", ");
+                            out.append(i).append("=").append(describeValue(param.args[i]));
+                        }
+                    }
+                    out.append("]");
+                    log(out.toString());
                 }
 
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     if (param.hasThrowable()) {
-                        Throwable t = param.getThrowable();
-                        log("secureSo THROW type=" + t.getClass().getName()
-                                + " message=" + safeMessage(t));
+                        Throwable error = param.getThrowable();
+                        log("secureSo THROW method=" + param.method
+                                + " exception=" + Log.getStackTraceString(error));
                     } else {
-                        log("secureSo RETURN " + fingerprint(param.getResult()));
+                        log("secureSo RETURN method=" + param.method
+                                + " result=" + describeValue(param.getResult()));
                     }
                 }
             });
-            log("Hook installed: " + CLASS_NAME + ".secureSo(Context,String,String)");
+            log("secureSo hook installed: overloads=" + installed.size()
+                    + " declared=" + declared);
         } catch (Throwable t) {
-            log("secureSo hook install failed: " + t.getClass().getName()
-                    + " " + safeMessage(t));
+            log("secureSo hook install failed: " + Log.getStackTraceString(t));
             XposedBridge.log(t);
         }
+    }
+
+    // Never emit raw String/object contents: secureSo may receive credentials or device IDs.
+    // Primitive diagnostic values and structural metadata are logged directly.
+    private static String describeValue(Object value) {
+        if (value == null) return "null";
+        if (value instanceof Context) {
+            return "Context(package=" + ((Context) value).getPackageName() + ")";
+        }
+        if (value instanceof String) {
+            String s = (String) value;
+            return "String(length=" + s.length() + ", sha256=" + sha256(s) + ")";
+        }
+        if (value instanceof Number || value instanceof Boolean || value instanceof Character
+                || value instanceof Enum<?>) {
+            return value.getClass().getSimpleName() + "(" + String.valueOf(value) + ")";
+        }
+        Class<?> type = value.getClass();
+        if (type.isArray()) {
+            return type.getComponentType().getTypeName() + "[]"
+                    + "(length=" + java.lang.reflect.Array.getLength(value) + ")";
+        }
+        return type.getName();
     }
 
     private void hookWebViewDiagnostics() {
